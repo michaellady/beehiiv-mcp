@@ -13,14 +13,34 @@ Read-only: no posts are created, no subscribers are edited, no state is mutated.
 
 ## Setup
 
-### 1. Build the binary
+### 1. Create a self-signed code-signing cert (once)
+
+This step makes your Keychain ACL entries survive rebuilds. Without a stable code signature, macOS treats every `go build` as a different app and re-prompts for Keychain access.
+
+Open **Keychain Access → Certificate Assistant → Create a Certificate…**:
+
+- **Name:** `beehiiv-mcp-dev`
+- **Identity Type:** Self-Signed Root
+- **Certificate Type:** Code Signing
+
+Click Create and accept the defaults. The cert lands in your login keychain. `make install` below uses it to sign every rebuild with a stable identity.
+
+### 2. Build + sign the binary
 
 ```bash
 cd ~/dev/beehiiv-mcp
-go build -o beehiiv-mcp .
+make install
 ```
 
-### 2. Store credentials in macOS Keychain
+`make install` runs `go build` then `codesign --sign beehiiv-mcp-dev`. The output tells you the absolute path to paste into your Claude Code MCP config.
+
+To use a different signing identity name, override `CODESIGN_IDENTITY`:
+
+```bash
+make install CODESIGN_IDENTITY="Your Identity Name"
+```
+
+### 3. Store credentials in macOS Keychain
 
 Create an API key at https://app.beehiiv.com/settings/integrations/api, then:
 
@@ -30,9 +50,9 @@ Create an API key at https://app.beehiiv.com/settings/integrations/api, then:
 # Enter your beehiiv publication ID (starts with "pub_"): …
 ```
 
-The first keychain write triggers a one-time macOS prompt: **"Allow beehiiv-mcp to access Keychain?"** — pick **Always Allow** so Claude Code doesn't see a dialog on every tool call.
+The first write to Keychain may trigger one macOS "Allow" prompt. Accept it. Because the item is created with an ACL that pre-trusts this signed binary, **subsequent reads by `beehiiv-mcp` happen silently** — no prompt when Claude Code launches the MCP server, and no prompt after rebuilds (as long as you keep signing with the same identity).
 
-Verify the credentials are readable:
+Verify the credentials are readable (should show no prompt):
 
 ```bash
 ./beehiiv-mcp auth check
@@ -47,7 +67,7 @@ export BEEHIIV_API_KEY=…
 export BEEHIIV_PUBLICATION_ID=pub_…
 ```
 
-### 3. Register the MCP server with Claude Code
+### 4. Register the MCP server with Claude Code
 
 Add an entry to your Claude Code MCP config (usually `~/.claude.json`):
 
@@ -63,7 +83,7 @@ Add an entry to your Claude Code MCP config (usually `~/.claude.json`):
 
 Restart Claude Code. The tools will appear as `mcp__beehiiv__beehiiv_stats`, `mcp__beehiiv__beehiiv_automations`, `mcp__beehiiv__beehiiv_segments`, `mcp__beehiiv__beehiiv_webhooks`.
 
-### 4. Try it
+### 5. Try it
 
 Ask Claude:
 
@@ -92,17 +112,12 @@ The 30 most recent snapshots are kept; older ones are pruned automatically. Thes
 ## Development
 
 ```bash
-# Unit tests (no network, no keychain access)
-go test ./...
-
-# Coverage
-go test -cover ./...
-
-# Integration tests — opt-in; hits the live API with whatever credentials are configured
-go test -tags integration ./...
-
-# Build + static analysis
-go build ./... && go vet ./...
+make test               # unit tests (no network, no keychain access)
+make cover              # coverage
+make test-integration   # opt-in; hits the live API with configured credentials
+make vet                # go vet ./...
+make install            # go build + codesign (use after any source change)
+make clean              # remove binary + coverage
 ```
 
 The codebase is structured for testability via narrow interfaces:
@@ -111,6 +126,14 @@ The codebase is structured for testability via narrow interfaces:
 - `statsAPI`, `automationsAPI`, `segmentsAPI`, `webhooksAPI` (in each handler file) — the slice of the beehiiv API that each tool needs. Real implementation methods live on `*client` in `api.go`; tests inject focused fakes.
 
 Unit tests run in <1s and never touch the network or Keychain.
+
+### Keychain implementation notes
+
+`keychain_darwin.go` talks to Security.framework directly via cgo — no third-party keychain dependency. At `auth set` time it constructs a `SecAccess` whose trusted-applications list contains exactly the current running binary (`SecTrustedApplicationCreateFromPath(NULL, …)`). Reads from that same binary thereafter skip the macOS authorization prompt.
+
+The Designated Requirement embedded in the ACL is derived from the binary's code signature. This is why the self-signed cert matters — rebuilds signed with the same identity match the same DR, so the ACL entry stays valid. Rebuilding without codesign (or with a different cert) changes the DR and macOS will re-prompt.
+
+The APIs used (`SecKeychainItemCreateFromContent`, `SecAccessCreate`, `SecTrustedApplicationCreateFromPath`) are deprecated in macOS 10.15 in favor of `SecItemAdd` + `kSecUseDataProtectionKeychain`. The modern APIs do not expose per-item trusted-app ACLs on the file-based login keychain, so we use the legacy ones deliberately and silence the deprecation warnings.
 
 ## Limitations
 
