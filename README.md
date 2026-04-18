@@ -13,17 +13,26 @@ Read-only: no posts are created, no subscribers are edited, no state is mutated.
 
 ## Setup
 
-### 1. Create a self-signed code-signing cert (once)
+### 1. Pick a code-signing identity
 
-This step makes your Keychain ACL entries survive rebuilds. Without a stable code signature, macOS treats every `go build` as a different app and re-prompts for Keychain access.
+Signing the binary with a stable identity is what makes your Keychain ACL entries survive rebuilds — macOS would otherwise treat every `go build` as a different app and re-prompt.
 
-Open **Keychain Access → Certificate Assistant → Create a Certificate…**:
+List identities currently in your keychain:
 
-- **Name:** `beehiiv-mcp-dev`
-- **Identity Type:** Self-Signed Root
-- **Certificate Type:** Code Signing
+```bash
+security find-identity -v -p codesigning
+```
 
-Click Create and accept the defaults. The cert lands in your login keychain. `make install` below uses it to sign every rebuild with a stable identity.
+If you see an `Apple Development` or `Developer ID Application` identity from your Apple Developer account, use that — it's already trusted, no setup needed.
+
+If you don't have one, create a self-signed cert via **Keychain Access → Certificate Assistant → Create a Certificate…** (Name: `beehiiv-mcp-dev`, Identity Type: Self-Signed Root, Certificate Type: Code Signing), then trust it for code signing:
+
+```bash
+security find-certificate -c beehiiv-mcp-dev -p > /tmp/cert.pem
+security add-trusted-cert -d -r trustRoot -p codeSign \
+  -k ~/Library/Keychains/login.keychain-db /tmp/cert.pem
+rm /tmp/cert.pem
+```
 
 ### 2. Build + sign the binary
 
@@ -32,12 +41,13 @@ cd ~/dev/beehiiv-mcp
 make install
 ```
 
-`make install` runs `go build` then `codesign --sign beehiiv-mcp-dev`. The output tells you the absolute path to paste into your Claude Code MCP config.
+`make install` runs `go build` then `codesign`, defaulting to the **first valid codesigning identity** in your keychain. Output includes the absolute path to paste into your Claude Code MCP config.
 
-To use a different signing identity name, override `CODESIGN_IDENTITY`:
+To pin a specific identity, override `CODESIGN_IDENTITY` with either its SHA1 or full name:
 
 ```bash
-make install CODESIGN_IDENTITY="Your Identity Name"
+make install CODESIGN_IDENTITY="C2CC96BE88BCE19D66511036A9BC9EBB6DF3F424"
+make install CODESIGN_IDENTITY="Apple Development: you@example.com (TEAMID)"
 ```
 
 ### 3. Store credentials in macOS Keychain
@@ -131,7 +141,7 @@ Unit tests run in <1s and never touch the network or Keychain.
 
 `keychain_darwin.go` talks to Security.framework directly via cgo — no third-party keychain dependency. At `auth set` time it constructs a `SecAccess` whose trusted-applications list contains exactly the current running binary (`SecTrustedApplicationCreateFromPath(NULL, …)`). Reads from that same binary thereafter skip the macOS authorization prompt.
 
-The Designated Requirement embedded in the ACL is derived from the binary's code signature. This is why the self-signed cert matters — rebuilds signed with the same identity match the same DR, so the ACL entry stays valid. Rebuilding without codesign (or with a different cert) changes the DR and macOS will re-prompt.
+The Designated Requirement embedded in the ACL is derived from the binary's code signature. This is why signing with a stable identity matters — rebuilds signed with the same identity match the same DR, so the ACL entry stays valid. Rebuilding without codesign (or with a different cert) changes the DR and macOS will re-prompt.
 
 The APIs used (`SecKeychainItemCreateFromContent`, `SecAccessCreate`, `SecTrustedApplicationCreateFromPath`) are deprecated in macOS 10.15 in favor of `SecItemAdd` + `kSecUseDataProtectionKeychain`. The modern APIs do not expose per-item trusted-app ACLs on the file-based login keychain, so we use the legacy ones deliberately and silence the deprecation warnings.
 

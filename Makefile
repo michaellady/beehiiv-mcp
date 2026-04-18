@@ -1,5 +1,7 @@
 BINARY             := beehiiv-mcp
-CODESIGN_IDENTITY  ?= beehiiv-mcp-dev
+# Default to the first valid code-signing identity in your keychain. Override
+# with `make install CODESIGN_IDENTITY="SHA1 or name"` if you have multiple.
+CODESIGN_IDENTITY  ?= $(shell security find-identity -v -p codesigning 2>/dev/null | awk 'NR==1 {print $$2}')
 
 .PHONY: build
 build:
@@ -7,19 +9,23 @@ build:
 
 .PHONY: sign
 sign: build
-	@if ! security find-identity -v -p codesigning | grep -q "$(CODESIGN_IDENTITY)"; then \
+	@if [ -z "$(CODESIGN_IDENTITY)" ]; then \
 		echo ""; \
-		echo "error: code-signing identity '$(CODESIGN_IDENTITY)' not found."; \
+		echo "error: no code-signing identity found in your keychain."; \
 		echo ""; \
-		echo "Create one in Keychain Access:"; \
-		echo "  Keychain Access → Certificate Assistant → Create a Certificate..."; \
-		echo "  - Name: $(CODESIGN_IDENTITY)"; \
-		echo "  - Identity Type: Self-Signed Root"; \
-		echo "  - Certificate Type: Code Signing"; \
+		echo "Options:"; \
+		echo "  (a) Use an Apple Developer cert (recommended if you have one):"; \
+		echo "      security find-identity -v -p codesigning"; \
+		echo "      make install CODESIGN_IDENTITY=\"<SHA1 or full name>\""; \
 		echo ""; \
-		echo "Or override: make install CODESIGN_IDENTITY=\"Your Identity Name\""; \
+		echo "  (b) Create a self-signed cert in Keychain Access → Certificate"; \
+		echo "      Assistant → Create a Certificate... (Self-Signed Root, Code Signing)."; \
+		echo "      Then trust it for codesigning via:"; \
+		echo "      security add-trusted-cert -d -r trustRoot -p codeSign -k \\"; \
+		echo "        ~/Library/Keychains/login.keychain-db <path-to-cert.pem>"; \
 		exit 1; \
 	fi
+	@echo "Signing $(BINARY) with identity $(CODESIGN_IDENTITY)"
 	codesign --sign "$(CODESIGN_IDENTITY)" --force --options runtime $(BINARY)
 
 .PHONY: install
