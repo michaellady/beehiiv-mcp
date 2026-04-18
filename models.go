@@ -1,5 +1,7 @@
 package main
 
+import "time"
+
 // Publication is the top-level beehiiv publication record (subset of fields
 // we surface to tools).
 type Publication struct {
@@ -51,4 +53,23 @@ type AutomationEmail struct {
 	OpenRate  float64 `json:"open_rate"`
 	Clicks    int64   `json:"clicks"`
 	ClickRate float64 `json:"click_rate"`
+}
+
+// Segment is a saved subscriber filter.
+type Segment struct {
+	ID               string    `json:"id"`
+	Name             string    `json:"name"`
+	Type             string    `json:"type"` // static | dynamic
+	MemberCount      int64     `json:"member_count"`
+	LastCalculatedAt time.Time `json:"last_calculated_at"`
+}
+
+// Webhook is a registered outbound event listener.
+type Webhook struct {
+	ID                 string    `json:"id"`
+	URL                string    `json:"url"`
+	Status             string    `json:"status"` // active | paused
+	Events             []string  `json:"events"`
+	LastDeliveryAt     time.Time `json:"last_delivery_at"`
+	LastDeliveryStatus string    `json:"last_delivery_status"` // success | failure | unknown
 }
