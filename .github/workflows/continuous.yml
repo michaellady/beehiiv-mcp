@@ -22,17 +22,25 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: continuous-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     strategy:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-14
+          - runner: [self-hosted, macOS, ARM64]
             arch: arm64
           - runner: macos-13
             arch: amd64
     runs-on: ${{ matrix.runner }}
+    # Intel builds use the free-tier hosted Intel runner which can queue for
+    # a long time. Don't block the release on it — arm64 is the primary target.
+    continue-on-error: ${{ matrix.arch == 'amd64' }}
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
