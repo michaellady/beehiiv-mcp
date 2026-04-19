@@ -34,10 +34,11 @@ security add-trusted-cert -d -r trustRoot -p codeSign \
 rm /tmp/cert.pem
 ```
 
-### 2. Build + sign the binary
+### 2. Clone + build + sign the binary
 
 ```bash
-cd ~/dev/beehiiv-mcp
+git clone https://github.com/mikelady/beehiiv-mcp.git
+cd beehiiv-mcp
 make install
 ```
 
@@ -85,7 +86,7 @@ Add an entry to your Claude Code MCP config (usually `~/.claude.json`):
 {
   "mcpServers": {
     "beehiiv": {
-      "command": "/Users/mikelady/dev/beehiiv-mcp/beehiiv-mcp"
+      "command": "/absolute/path/to/beehiiv-mcp/beehiiv-mcp"
     }
   }
 }
