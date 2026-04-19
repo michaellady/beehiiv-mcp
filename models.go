@@ -81,6 +81,21 @@ type Segment struct {
 	LastCalculatedAt time.Time `json:"last_calculated_at"`
 }
 
+// Subscription is a single beehiiv subscriber record with its acquisition
+// provenance. beehiiv exposes UTM fields + a referring site on every
+// subscriber; attribution.go buckets those into high-level sources.
+type Subscription struct {
+	ID            string    `json:"id"`
+	Email         string    `json:"email"`
+	Status        string    `json:"status"`           // active | inactive | pending | …
+	Created       time.Time `json:"created"`
+	UTMSource     string    `json:"utm_source"`
+	UTMMedium     string    `json:"utm_medium"`
+	UTMCampaign   string    `json:"utm_campaign"`
+	UTMChannel    string    `json:"utm_channel"`
+	ReferringSite string    `json:"referring_site"`
+}
+
 // Webhook is a registered outbound event listener.
 type Webhook struct {
 	ID                 string    `json:"id"`

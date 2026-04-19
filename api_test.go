@@ -201,6 +201,82 @@ func TestAPI_ListWebhooks_FillsUnknownStatus(t *testing.T) {
 	}
 }
 
+func TestAPI_ListSubscriptions_WalksCursorsAndStopsAtSince(t *testing.T) {
+	// Page 1 (newest 3): cursor "p2"
+	// Page 2 (oldest 2): no cursor, has_more false
+	// since cuts off the 4th sub
+	pages := map[string]string{
+		"": `{
+			"data":[
+				{"id":"s1","email":"a@x.com","status":"active","created":1745000000,"utm_source":"youtube","referring_site":""},
+				{"id":"s2","email":"b@x.com","status":"active","created":1744900000,"utm_source":"linkedin","referring_site":""},
+				{"id":"s3","email":"c@x.com","status":"active","created":1744800000,"utm_source":"","referring_site":""}
+			],
+			"has_more":true,"next_cursor":"p2","limit":3
+		}`,
+		"p2": `{
+			"data":[
+				{"id":"s4","email":"d@x.com","status":"active","created":1744700000,"utm_source":"","referring_site":""},
+				{"id":"s5","email":"e@x.com","status":"active","created":1744600000,"utm_source":"","referring_site":""}
+			],
+			"has_more":false,"next_cursor":"","limit":3
+		}`,
+	}
+	var reqCursors []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c := r.URL.Query().Get("cursor")
+		reqCursors = append(reqCursors, c)
+		body, ok := pages[c]
+		if !ok {
+			http.Error(w, "unmapped cursor "+c, http.StatusNotFound)
+			return
+		}
+		_, _ = w.Write([]byte(body))
+	}))
+	defer srv.Close()
+
+	c := newClient(clientOpts{APIKey: "k", BaseURL: srv.URL})
+
+	// Since = 1744750000 → cuts off s4 and s5 (created earlier).
+	since := unixToTime(1744750000)
+	subs, err := c.ListSubscriptions(context.Background(), "pub_1", since, 100)
+	if err != nil {
+		t.Fatalf("ListSubscriptions: %v", err)
+	}
+	if len(subs) != 3 {
+		t.Errorf("got %d subs, want 3 (s1/s2/s3)", len(subs))
+	}
+	if len(reqCursors) < 2 {
+		t.Errorf("requested cursors = %v, expected at least 2 pages", reqCursors)
+	}
+	if subs[0].UTMSource != "youtube" {
+		t.Errorf("UTM mapping broken: %+v", subs[0])
+	}
+}
+
+func TestAPI_ListSubscriptions_RespectsMax(t *testing.T) {
+	body := `{
+		"data":[
+			{"id":"s1","created":1745000000},{"id":"s2","created":1744900000},
+			{"id":"s3","created":1744800000},{"id":"s4","created":1744700000}
+		],
+		"has_more":true,"next_cursor":"p2","limit":4
+	}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(body))
+	}))
+	defer srv.Close()
+	c := newClient(clientOpts{APIKey: "k", BaseURL: srv.URL})
+
+	subs, err := c.ListSubscriptions(context.Background(), "pub_1", unixToTime(0), 2)
+	if err != nil {
+		t.Fatalf("ListSubscriptions: %v", err)
+	}
+	if len(subs) != 2 {
+		t.Errorf("got %d subs, want 2 (capped by max)", len(subs))
+	}
+}
+
 func TestAPI_Helpers(t *testing.T) {
 	if got := unixToDate(0); got != "" {
 		t.Errorf("unixToDate(0) = %q, want empty", got)

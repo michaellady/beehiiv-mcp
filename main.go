@@ -53,6 +53,7 @@ func serveStdio() error {
 		Automations: client,
 		Segments:    client,
 		Webhooks:    client,
+		Attribution: client,
 		Snapshots:   snapshots,
 		PubID:       creds.PublicationID,
 	})

@@ -14,6 +14,7 @@ const (
 	toolAutomations = "beehiiv_automations"
 	toolSegments    = "beehiiv_segments"
 	toolWebhooks    = "beehiiv_webhooks"
+	toolAttribution = "beehiiv_attribution"
 )
 
 // serverDeps bundles the external dependencies the tool handlers need.
@@ -23,6 +24,7 @@ type serverDeps struct {
 	Automations automationsAPI
 	Segments    segmentsAPI
 	Webhooks    webhooksAPI
+	Attribution attributionAPI
 	Snapshots   *snapshotStore
 	PubID       string
 	Now         func() time.Time
@@ -76,6 +78,18 @@ func handleWebhooks(ctx context.Context, deps *serverDeps, _ mcp.CallToolRequest
 	out, err := runWebhooks(ctx, deps.Webhooks, deps.PubID, deps.Now())
 	if err != nil {
 		return mcp.NewToolResultErrorFromErr("webhooks failed", err), nil
+	}
+	return jsonResult(out)
+}
+
+func handleAttribution(ctx context.Context, deps *serverDeps, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	in := attributionInput{
+		WindowDays: req.GetInt("window_days", defaultAttributionWindow),
+		Limit:      req.GetInt("limit", defaultAttributionLimit),
+	}
+	out, err := runAttribution(ctx, deps.Attribution, deps.PubID, in, deps.Now())
+	if err != nil {
+		return mcp.NewToolResultErrorFromErr("attribution failed", err), nil
 	}
 	return jsonResult(out)
 }
@@ -152,6 +166,28 @@ func buildServer(deps serverDeps) *server.MCPServer {
 		},
 	)
 
+	s.AddTool(
+		mcp.NewTool(toolAttribution,
+			mcp.WithDescription(
+				"Show where new beehiiv subscribers are coming from — bucketed by "+
+					"source (youtube, linkedin, direct, referral, …) with top "+
+					"campaigns, top referring sites, and a per-day new-subs histogram. "+
+					"Answers \"is my YouTube → newsletter funnel working?\"",
+			),
+			mcp.WithNumber("window_days",
+				mcp.Description("How many days back to look (default 30)."),
+				mcp.DefaultNumber(defaultAttributionWindow),
+			),
+			mcp.WithNumber("limit",
+				mcp.Description("Max subscribers to sample (default 500, max 5000)."),
+				mcp.DefaultNumber(defaultAttributionLimit),
+			),
+		),
+		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			return handleAttribution(ctx, &deps, req)
+		},
+	)
+
 	return s
 }
 
@@ -167,5 +203,5 @@ func jsonResult(v any) (*mcp.CallToolResult, error) {
 // listToolNames returns the registered tool names in a stable order — used
 // by tests to assert the full tool set without touching MCPServer internals.
 func listToolNames() []string {
-	return []string{toolStats, toolAutomations, toolSegments, toolWebhooks}
+	return []string{toolStats, toolAutomations, toolSegments, toolWebhooks, toolAttribution}
 }

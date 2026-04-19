@@ -219,6 +219,82 @@ func (c *client) ListWebhooks(ctx context.Context, pubID string) ([]Webhook, err
 	return out, nil
 }
 
+// --- Subscriptions (cursor pagination) ---
+//
+// Unlike most beehiiv list endpoints, /subscriptions is cursor-paginated
+// (has_more + next_cursor), not page-indexed. We walk newest-first and stop
+// when we pass `since` or hit `max`. Server-side ordering defaults to oldest-
+// first; we reverse via direction=desc so we can short-circuit once we cross
+// the window boundary.
+
+type wireSubscription struct {
+	ID            string `json:"id"`
+	Email         string `json:"email"`
+	Status        string `json:"status"`
+	Created       int64  `json:"created"` // unix seconds
+	UTMSource     string `json:"utm_source"`
+	UTMMedium     string `json:"utm_medium"`
+	UTMCampaign   string `json:"utm_campaign"`
+	UTMChannel    string `json:"utm_channel"`
+	ReferringSite string `json:"referring_site"`
+}
+
+type wireSubscriptionsPage struct {
+	Data       []wireSubscription `json:"data"`
+	HasMore    bool               `json:"has_more"`
+	NextCursor string             `json:"next_cursor"`
+	Limit      int                `json:"limit"`
+}
+
+func (c *client) ListSubscriptions(ctx context.Context, pubID string, since time.Time, max int) ([]Subscription, error) {
+	const pageLimit = 100
+	out := make([]Subscription, 0, pageLimit)
+	cursor := ""
+
+	for {
+		query := map[string]string{
+			"limit":     strconv.Itoa(pageLimit),
+			"order_by":  "created",
+			"direction": "desc",
+		}
+		if cursor != "" {
+			query["cursor"] = cursor
+		}
+		var page wireSubscriptionsPage
+		if err := c.do(ctx, "GET", "/publications/"+pubID+"/subscriptions", query, &page); err != nil {
+			return nil, err
+		}
+
+		stopEarly := false
+		for _, s := range page.Data {
+			created := unixToTime(s.Created)
+			if created.Before(since) {
+				// Because we walked newest-first, everything remaining is older.
+				stopEarly = true
+				break
+			}
+			out = append(out, Subscription{
+				ID:            s.ID,
+				Email:         s.Email,
+				Status:        s.Status,
+				Created:       created,
+				UTMSource:     s.UTMSource,
+				UTMMedium:     s.UTMMedium,
+				UTMCampaign:   s.UTMCampaign,
+				UTMChannel:    s.UTMChannel,
+				ReferringSite: s.ReferringSite,
+			})
+			if len(out) >= max {
+				return out, nil
+			}
+		}
+		if stopEarly || !page.HasMore || page.NextCursor == "" {
+			return out, nil
+		}
+		cursor = page.NextCursor
+	}
+}
+
 // --- helpers ---
 
 func unixToTime(sec int64) time.Time {

@@ -29,6 +29,10 @@ func makeDeps(t *testing.T) *serverDeps {
 		Webhooks: &fakeWebhooksAPI{hooks: []Webhook{
 			{ID: "w1", Status: "active", LastDeliveryStatus: "success"},
 		}},
+		Attribution: &fakeAttributionAPI{subs: []Subscription{
+			{Created: time.Date(2026, 4, 18, 0, 0, 0, 0, time.UTC), UTMSource: "youtube"},
+			{Created: time.Date(2026, 4, 17, 0, 0, 0, 0, time.UTC), UTMSource: "linkedin"},
+		}},
 		Snapshots: newSnapshotStore(t.TempDir()),
 		PubID:     "pub_1",
 		Now:       func() time.Time { return time.Date(2026, 4, 18, 20, 0, 0, 0, time.UTC) },
@@ -56,13 +60,14 @@ func extractText(t *testing.T, r *mcp.CallToolResult) string {
 	return b.String()
 }
 
-func TestBuildServer_RegistersAllFourTools(t *testing.T) {
+func TestBuildServer_RegistersAllTools(t *testing.T) {
 	s := buildServer(*makeDeps(t))
 	if s == nil {
 		t.Fatal("buildServer returned nil")
 	}
 	want := map[string]bool{
-		toolStats: true, toolAutomations: true, toolSegments: true, toolWebhooks: true,
+		toolStats: true, toolAutomations: true, toolSegments: true,
+		toolWebhooks: true, toolAttribution: true,
 	}
 	for _, n := range listToolNames() {
 		if !want[n] {
@@ -189,6 +194,44 @@ func TestHandleWebhooks_ErrorPath(t *testing.T) {
 	deps := makeDeps(t)
 	deps.Webhooks.(*fakeWebhooksAPI).err = errors.New("nope")
 	res, _ := handleWebhooks(context.Background(), deps, newReq(nil))
+	if !res.IsError {
+		t.Errorf("expected IsError")
+	}
+}
+
+func TestHandleAttribution_ReturnsBucketedJSON(t *testing.T) {
+	deps := makeDeps(t)
+	// Align Now() with the fixture subs so they fall inside the default window.
+	deps.Now = func() time.Time { return time.Date(2026, 4, 19, 0, 0, 0, 0, time.UTC) }
+
+	res, err := handleAttribution(context.Background(), deps, newReq(map[string]any{
+		"window_days": float64(30),
+	}))
+	if err != nil {
+		t.Fatalf("handleAttribution: %v", err)
+	}
+	txt := extractText(t, res)
+	var got map[string]any
+	if jErr := json.Unmarshal([]byte(txt), &got); jErr != nil {
+		t.Fatalf("non-JSON response: %v\n%s", jErr, txt)
+	}
+	if got["total_subs_in_window"].(float64) != 2 {
+		t.Errorf("total = %v, want 2", got["total_subs_in_window"])
+	}
+	sources := map[string]bool{}
+	for _, b := range got["by_source"].([]any) {
+		m := b.(map[string]any)
+		sources[m["source"].(string)] = true
+	}
+	if !sources["youtube"] || !sources["linkedin"] {
+		t.Errorf("expected youtube and linkedin buckets; got %v", sources)
+	}
+}
+
+func TestHandleAttribution_ErrorPath(t *testing.T) {
+	deps := makeDeps(t)
+	deps.Attribution.(*fakeAttributionAPI).err = errors.New("upstream")
+	res, _ := handleAttribution(context.Background(), deps, newReq(nil))
 	if !res.IsError {
 		t.Errorf("expected IsError")
 	}
