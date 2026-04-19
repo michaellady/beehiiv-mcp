@@ -43,19 +43,20 @@ func TestIntegration_GetPublication(t *testing.T) {
 	t.Logf("publication: %s (%s)", pub.Name, pub.ID)
 }
 
-func TestIntegration_CountSubscribers(t *testing.T) {
+func TestIntegration_GetPublicationStats(t *testing.T) {
 	c, pubID := newIntegrationClient(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	n, err := c.CountSubscribers(ctx, pubID)
+	stats, err := c.GetPublicationStats(ctx, pubID)
 	if err != nil {
-		t.Fatalf("CountSubscribers: %v", err)
+		t.Fatalf("GetPublicationStats: %v", err)
 	}
-	if n < 0 {
-		t.Errorf("subscriber count negative: %d", n)
+	if stats.ActiveSubscriptions < 0 {
+		t.Errorf("subscriber count negative: %d", stats.ActiveSubscriptions)
 	}
-	t.Logf("subscribers: %d", n)
+	t.Logf("subscribers: %d, avg_open_rate: %.2f%%, avg_click_rate: %.2f%%",
+		stats.ActiveSubscriptions, stats.AverageOpenRate, stats.AverageClickRate)
 }
 
 func TestIntegration_ListPostsWithStats(t *testing.T) {

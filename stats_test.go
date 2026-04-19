@@ -9,12 +9,10 @@ import (
 type fakeStatsAPI struct {
 	pub          Publication
 	pubErr       error
-	subscribers  int64
-	subsErr      error
+	pubStats     PublicationStats
+	pubStatsErr  error
 	posts        []Post
 	postsErr     error
-	engagement   EngagementSummary
-	engageErr    error
 	lastPostArgs struct {
 		limit     int
 		withStats bool
@@ -24,26 +22,22 @@ type fakeStatsAPI struct {
 func (f *fakeStatsAPI) GetPublication(ctx context.Context, id string) (Publication, error) {
 	return f.pub, f.pubErr
 }
-func (f *fakeStatsAPI) CountSubscribers(ctx context.Context, id string) (int64, error) {
-	return f.subscribers, f.subsErr
+func (f *fakeStatsAPI) GetPublicationStats(ctx context.Context, id string) (PublicationStats, error) {
+	return f.pubStats, f.pubStatsErr
 }
 func (f *fakeStatsAPI) ListPostsWithStats(ctx context.Context, id string, limit int) ([]Post, error) {
 	f.lastPostArgs.limit = limit
 	f.lastPostArgs.withStats = true
 	return f.posts, f.postsErr
 }
-func (f *fakeStatsAPI) GetEngagements(ctx context.Context, id string) (EngagementSummary, error) {
-	return f.engagement, f.engageErr
-}
 
 func TestRunStats_HappyPath(t *testing.T) {
 	api := &fakeStatsAPI{
-		pub:         Publication{ID: "pub_1", Name: "Enterprise Vibe Code"},
-		subscribers: 1200,
+		pub:      Publication{ID: "pub_1", Name: "Enterprise Vibe Code"},
+		pubStats: PublicationStats{ActiveSubscriptions: 1200, AverageOpenRate: 42.3, AverageClickRate: 8.1},
 		posts: []Post{
-			{ID: "p1", Title: "Hello", PublishDate: "2026-04-14", Opens: 1203, OpenRate: 0.38, Clicks: 56, ClickRate: 0.045, SubscriberGained: 12},
+			{ID: "p1", Title: "Hello", PublishDate: "2026-04-14", Recipients: 1500, Opens: 1203, OpenRate: 37.14, Clicks: 56, ClickRate: 4.5},
 		},
-		engagement: EngagementSummary{OpenRate: 0.423, ClickRate: 0.081},
 	}
 	store := newSnapshotStore(t.TempDir())
 
@@ -62,8 +56,8 @@ func TestRunStats_HappyPath(t *testing.T) {
 	if out.Subscribers.HistorySufficient {
 		t.Errorf("HistorySufficient should be false on first run (no prior snapshot)")
 	}
-	if out.Engagement.OpenRate != 0.423 {
-		t.Errorf("OpenRate = %v, want 0.423", out.Engagement.OpenRate)
+	if out.Engagement.OpenRate != 42.3 {
+		t.Errorf("OpenRate = %v, want 42.3 (from PublicationStats.AverageOpenRate)", out.Engagement.OpenRate)
 	}
 	if len(out.RecentPosts) != 1 || out.RecentPosts[0].ID != "p1" {
 		t.Errorf("RecentPosts = %+v", out.RecentPosts)
@@ -95,7 +89,7 @@ func TestRunStats_GrowthCalculatedFromPriorSnapshot(t *testing.T) {
 
 	api := &fakeStatsAPI{
 		pub:         Publication{ID: "pub_1"},
-		subscribers: 1200,
+		pubStats:    PublicationStats{ActiveSubscriptions: 1200, AverageOpenRate: 42.3, AverageClickRate: 8.1},
 	}
 	now := time.Date(2026, 4, 18, 20, 0, 0, 0, time.UTC)
 	out, err := runStats(context.Background(), api, store, "pub_1", statsInput{WindowDays: 30, PostLimit: 5}, now)
@@ -124,7 +118,7 @@ func TestRunStats_GrowthInsufficientHistoryWhenOnlyRecentSnapshots(t *testing.T)
 	recent := time.Date(2026, 4, 15, 0, 0, 0, 0, time.UTC)
 	_, _ = store.Write(recent, statsOutput{Subscribers: SubscriberStats{Current: 1150}, FetchedAt: recent})
 
-	api := &fakeStatsAPI{pub: Publication{ID: "pub_1"}, subscribers: 1200}
+	api := &fakeStatsAPI{pub: Publication{ID: "pub_1"}, pubStats: PublicationStats{ActiveSubscriptions: 1200}}
 	now := time.Date(2026, 4, 18, 20, 0, 0, 0, time.UTC)
 	out, err := runStats(context.Background(), api, store, "pub_1", statsInput{WindowDays: 30, PostLimit: 5}, now)
 	if err != nil {
@@ -140,7 +134,7 @@ func TestRunStats_GrowthInsufficientHistoryWhenOnlyRecentSnapshots(t *testing.T)
 
 func TestRunStats_ZeroSubscribersSurvives(t *testing.T) {
 	store := newSnapshotStore(t.TempDir())
-	api := &fakeStatsAPI{pub: Publication{ID: "pub_1"}, subscribers: 0}
+	api := &fakeStatsAPI{pub: Publication{ID: "pub_1"}, pubStats: PublicationStats{ActiveSubscriptions: 0}}
 	now := time.Date(2026, 4, 18, 20, 0, 0, 0, time.UTC)
 
 	out, err := runStats(context.Background(), api, store, "pub_1", statsInput{WindowDays: 30, PostLimit: 5}, now)
@@ -154,7 +148,7 @@ func TestRunStats_ZeroSubscribersSurvives(t *testing.T) {
 
 func TestRunStats_DefaultsWhenInputZero(t *testing.T) {
 	store := newSnapshotStore(t.TempDir())
-	api := &fakeStatsAPI{pub: Publication{ID: "pub_1"}, subscribers: 100}
+	api := &fakeStatsAPI{pub: Publication{ID: "pub_1"}, pubStats: PublicationStats{ActiveSubscriptions: 100}}
 	now := time.Now()
 
 	out, err := runStats(context.Background(), api, store, "pub_1", statsInput{}, now)
@@ -171,7 +165,7 @@ func TestRunStats_DefaultsWhenInputZero(t *testing.T) {
 
 func TestRunStats_PostLimitCapped(t *testing.T) {
 	store := newSnapshotStore(t.TempDir())
-	api := &fakeStatsAPI{pub: Publication{ID: "pub_1"}, subscribers: 100}
+	api := &fakeStatsAPI{pub: Publication{ID: "pub_1"}, pubStats: PublicationStats{ActiveSubscriptions: 100}}
 	now := time.Now()
 
 	_, err := runStats(context.Background(), api, store, "pub_1",

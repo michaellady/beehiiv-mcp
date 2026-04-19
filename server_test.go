@@ -15,10 +15,9 @@ func makeDeps(t *testing.T) *serverDeps {
 	t.Helper()
 	return &serverDeps{
 		Stats: &fakeStatsAPI{
-			pub:         Publication{ID: "pub_1", Name: "EVC"},
-			subscribers: 1000,
-			posts:       []Post{{ID: "p1", Title: "hi", PublishDate: "2026-04-14"}},
-			engagement:  EngagementSummary{OpenRate: 0.4, ClickRate: 0.05},
+			pub:      Publication{ID: "pub_1", Name: "EVC"},
+			pubStats: PublicationStats{ActiveSubscriptions: 1000, AverageOpenRate: 40, AverageClickRate: 5},
+			posts:    []Post{{ID: "p1", Title: "hi", PublishDate: "2026-04-14"}},
 		},
 		Automations: &fakeAutomationsAPI{
 			list:     []Automation{{ID: "a1", Name: "Welcome", Status: "active"}},

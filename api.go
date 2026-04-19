@@ -25,36 +25,43 @@ func (c *client) GetPublication(ctx context.Context, id string) (Publication, er
 	return env.Data, nil
 }
 
-// --- Subscriber count ---
+// --- Publication stats (subscribers + aggregate engagement) ---
 //
-// beehiiv's list endpoints include `total_results`; we ask for 1 item to
-// minimize payload then return just the total.
+// The /publications/{id}?expand[]=stats endpoint returns everything the
+// dashboard needs in one call: active subscriber count, average open/click
+// rates (percent), and volume totals. Replaces what used to be two separate
+// calls (/subscriptions and /engagement, neither of which actually returns
+// aggregate counts in a usable shape).
 
-type wireTotalResults struct {
-	TotalResults int64 `json:"total_results"`
+type wirePublicationStats struct {
+	Data struct {
+		Publication
+		Stats PublicationStats `json:"stats"`
+	} `json:"data"`
 }
 
-func (c *client) CountSubscribers(ctx context.Context, id string) (int64, error) {
-	var env wireTotalResults
-	if err := c.do(ctx, "GET", "/publications/"+id+"/subscriptions",
-		map[string]string{"limit": "1"}, &env); err != nil {
-		return 0, err
+func (c *client) GetPublicationStats(ctx context.Context, id string) (PublicationStats, error) {
+	var env wirePublicationStats
+	if err := c.do(ctx, "GET", "/publications/"+id,
+		map[string]string{"expand[]": "stats"}, &env); err != nil {
+		return PublicationStats{}, err
 	}
-	return env.TotalResults, nil
+	return env.Data.Stats, nil
 }
 
 // --- Posts with stats ---
 //
-// beehiiv posts expose stats under `stats.email.*` when ?expand=stats is set.
-// We map the subset we surface to Claude.
+// beehiiv posts expose stats under `stats.email.*` when ?expand[]=stats is
+// set. We map the subset we surface to Claude. Rate fields are percents
+// (e.g. 37.14) as beehiiv reports them, not 0..1 ratios.
 
 type wirePostStats struct {
 	Email struct {
-		Opens            int64   `json:"opens"`
-		OpenRate         float64 `json:"open_rate"`
-		Clicks           int64   `json:"clicks"`
-		ClickRate        float64 `json:"click_rate"`
-		SubscriberGained int64   `json:"subscribers_gained"`
+		Recipients int64   `json:"recipients"`
+		Opens      int64   `json:"opens"`
+		OpenRate   float64 `json:"open_rate"`
+		Clicks     int64   `json:"clicks"`
+		ClickRate  float64 `json:"click_rate"`
 	} `json:"email"`
 }
 
@@ -67,7 +74,7 @@ type wirePost struct {
 
 func (c *client) ListPostsWithStats(ctx context.Context, id string, limit int) ([]Post, error) {
 	query := map[string]string{
-		"expand":    "stats",
+		"expand[]":  "stats",
 		"limit":     strconv.Itoa(limit),
 		"order_by":  "publish_date",
 		"direction": "desc",
@@ -84,35 +91,17 @@ func (c *client) ListPostsWithStats(ctx context.Context, id string, limit int) (
 	posts := make([]Post, len(out))
 	for i, p := range out {
 		posts[i] = Post{
-			ID:               p.ID,
-			Title:            p.Title,
-			PublishDate:      unixToDate(p.PublishDate),
-			Opens:            p.Stats.Email.Opens,
-			OpenRate:         p.Stats.Email.OpenRate,
-			Clicks:           p.Stats.Email.Clicks,
-			ClickRate:        p.Stats.Email.ClickRate,
-			SubscriberGained: p.Stats.Email.SubscriberGained,
+			ID:          p.ID,
+			Title:       p.Title,
+			PublishDate: unixToDate(p.PublishDate),
+			Recipients:  p.Stats.Email.Recipients,
+			Opens:       p.Stats.Email.Opens,
+			OpenRate:    p.Stats.Email.OpenRate,
+			Clicks:      p.Stats.Email.Clicks,
+			ClickRate:   p.Stats.Email.ClickRate,
 		}
 	}
 	return posts, nil
-}
-
-// --- Publication engagement aggregate ---
-
-type wireEngagement struct {
-	Data EngagementSummary `json:"data"`
-}
-
-func (c *client) GetEngagements(ctx context.Context, id string) (EngagementSummary, error) {
-	var env wireEngagement
-	// Try the documented path; if the API returns 404, leave engagement zero
-	// rather than failing the whole stats call.
-	err := c.do(ctx, "GET", "/publications/"+id+"/engagement", nil, &env)
-	if err != nil {
-		// Best-effort: a missing engagement block should degrade gracefully.
-		return EngagementSummary{}, nil
-	}
-	return env.Data, nil
 }
 
 // --- Automations ---

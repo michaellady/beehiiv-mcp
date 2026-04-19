@@ -17,9 +17,8 @@ const (
 // Handlers depend on narrow interfaces so tests can supply focused fakes.
 type statsAPI interface {
 	GetPublication(ctx context.Context, id string) (Publication, error)
-	CountSubscribers(ctx context.Context, id string) (int64, error)
+	GetPublicationStats(ctx context.Context, id string) (PublicationStats, error)
 	ListPostsWithStats(ctx context.Context, id string, limit int) ([]Post, error)
-	GetEngagements(ctx context.Context, id string) (EngagementSummary, error)
 }
 
 // statsInput is the tool input as parsed from MCP JSON.
@@ -74,20 +73,17 @@ func runStats(
 	if err != nil {
 		return statsOutput{}, fmt.Errorf("get publication: %w", err)
 	}
-	subs, err := api.CountSubscribers(ctx, pubID)
+	pubStats, err := api.GetPublicationStats(ctx, pubID)
 	if err != nil {
-		return statsOutput{}, fmt.Errorf("count subscribers: %w", err)
+		return statsOutput{}, fmt.Errorf("get publication stats: %w", err)
 	}
 	posts, err := api.ListPostsWithStats(ctx, pubID, limit)
 	if err != nil {
 		return statsOutput{}, fmt.Errorf("list posts: %w", err)
 	}
-	eng, err := api.GetEngagements(ctx, pubID)
-	if err != nil {
-		return statsOutput{}, fmt.Errorf("get engagements: %w", err)
-	}
 
-	subStats := SubscriberStats{Current: subs, DeltaWindowDays: window}
+	subStats := SubscriberStats{Current: pubStats.ActiveSubscriptions, DeltaWindowDays: window}
+	eng := EngagementSummary{OpenRate: pubStats.AverageOpenRate, ClickRate: pubStats.AverageClickRate}
 
 	// Look up a prior snapshot whose timestamp is older than now-window.
 	if store != nil {
@@ -99,7 +95,7 @@ func runStats(
 		}
 		if found {
 			subStats.HistorySufficient = true
-			subStats.DeltaCount = subs - prior.Subscribers.Current
+			subStats.DeltaCount = pubStats.ActiveSubscriptions - prior.Subscribers.Current
 			if prior.Subscribers.Current > 0 {
 				subStats.DeltaPct = float64(subStats.DeltaCount) / float64(prior.Subscribers.Current) * 100
 			}

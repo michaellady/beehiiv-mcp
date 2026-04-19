@@ -38,16 +38,31 @@ func TestAPI_GetPublication(t *testing.T) {
 	}
 }
 
-func TestAPI_CountSubscribers(t *testing.T) {
+func TestAPI_GetPublicationStats(t *testing.T) {
 	c := withAPI(t, map[string]string{
-		"GET /publications/pub_1/subscriptions": `{"total_results":1234,"data":[]}`,
+		"GET /publications/pub_1": `{
+			"data":{"id":"pub_1","name":"EVC",
+			 "stats":{"active_subscriptions":179,"active_free_subscriptions":179,
+			 "average_open_rate":44.45,"average_click_rate":11.98,
+			 "total_sent":1147,"total_delivered":1145,
+			 "total_unique_opened":509,"total_clicked":61}}
+		}`,
 	})
-	n, err := c.CountSubscribers(context.Background(), "pub_1")
+	s, err := c.GetPublicationStats(context.Background(), "pub_1")
 	if err != nil {
-		t.Fatalf("CountSubscribers: %v", err)
+		t.Fatalf("GetPublicationStats: %v", err)
 	}
-	if n != 1234 {
-		t.Errorf("n = %d, want 1234", n)
+	if s.ActiveSubscriptions != 179 {
+		t.Errorf("ActiveSubscriptions = %d, want 179", s.ActiveSubscriptions)
+	}
+	if s.AverageOpenRate != 44.45 {
+		t.Errorf("AverageOpenRate = %v, want 44.45", s.AverageOpenRate)
+	}
+	if s.AverageClickRate != 11.98 {
+		t.Errorf("AverageClickRate = %v, want 11.98", s.AverageClickRate)
+	}
+	if s.TotalDelivered != 1145 {
+		t.Errorf("TotalDelivered = %d, want 1145", s.TotalDelivered)
 	}
 }
 
@@ -56,7 +71,7 @@ func TestAPI_ListPostsWithStats_MapsFields(t *testing.T) {
 		"GET /publications/pub_1/posts": `{
 			"data":[
 				{"id":"p1","title":"Hello","publish_date":1744669200,
-				 "stats":{"email":{"opens":100,"open_rate":0.4,"clicks":10,"click_rate":0.04,"subscribers_gained":3}}}
+				 "stats":{"email":{"recipients":175,"opens":97,"open_rate":37.14,"clicks":33,"click_rate":7.69}}}
 			],
 			"page":1,"total_pages":1
 		}`,
@@ -69,7 +84,7 @@ func TestAPI_ListPostsWithStats_MapsFields(t *testing.T) {
 		t.Fatalf("posts = %+v", posts)
 	}
 	p := posts[0]
-	if p.Opens != 100 || p.OpenRate != 0.4 || p.Clicks != 10 || p.ClickRate != 0.04 || p.SubscriberGained != 3 {
+	if p.Recipients != 175 || p.Opens != 97 || p.OpenRate != 37.14 || p.Clicks != 33 || p.ClickRate != 7.69 {
 		t.Errorf("mapped fields wrong: %+v", p)
 	}
 	if p.PublishDate == "" {
@@ -90,22 +105,6 @@ func TestAPI_ListPostsWithStats_CapsToLimit(t *testing.T) {
 	}
 	if len(posts) != 2 {
 		t.Errorf("posts = %d, want 2 (capped)", len(posts))
-	}
-}
-
-func TestAPI_GetEngagements_DegradesOn404(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, "not found", http.StatusNotFound)
-	}))
-	defer srv.Close()
-	c := newClient(clientOpts{APIKey: "k", BaseURL: srv.URL})
-
-	eng, err := c.GetEngagements(context.Background(), "pub_1")
-	if err != nil {
-		t.Fatalf("GetEngagements should not propagate 404, got %v", err)
-	}
-	if eng.OpenRate != 0 {
-		t.Errorf("eng = %+v, want zero on 404", eng)
 	}
 }
 
