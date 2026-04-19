@@ -1,4 +1,4 @@
-module github.com/mikelady/beehiiv-mcp
+module github.com/michaellady/beehiiv-mcp
 
 go 1.25.5
 

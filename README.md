@@ -11,7 +11,25 @@ Read-only MCP server that gives Claude visibility into a beehiiv newsletter: sub
 
 Read-only: no posts are created, no subscribers are edited, no state is mutated.
 
-## Setup
+## Install
+
+**Option A — Download a pre-built binary (fastest):**
+
+Grab the latest macOS release from [github.com/michaellady/beehiiv-mcp/releases](https://github.com/michaellady/beehiiv-mcp/releases). Pick `darwin_arm64` (Apple Silicon) or `darwin_amd64` (Intel Mac), verify the SHA256, then extract:
+
+```bash
+tar xzf beehiiv-mcp_v0.1.0_darwin_arm64.tar.gz
+cd beehiiv-mcp_v0.1.0_darwin_arm64
+./beehiiv-mcp auth set
+```
+
+Pre-built binaries are **ad-hoc signed**, which means macOS will show a Keychain "Allow" prompt the first time you run `auth set` AND again after each upgrade (because each release has a fresh cdhash-based signature). If that's annoying, use Option B for stable signatures.
+
+**Option B — Build from source (zero-prompt across upgrades):**
+
+Follow the Setup section below. Signing with a stable Apple Developer identity keeps your Keychain ACL entries valid across `make install` runs, so prompts appear exactly once.
+
+## Setup (build from source)
 
 ### 1. Pick a code-signing identity
 

@@ -1,0 +1,99 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            arch: arm64
+          - runner: macos-13
+            arch: amd64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Verify native arch
+        # Sanity check: the runner's architecture should match the matrix entry,
+        # so the cgo build is a native compile (no cross-compile for Security.framework).
+        run: |
+          ACTUAL=$(uname -m)
+          case "$ACTUAL" in
+            arm64)  EXPECT=arm64 ;;
+            x86_64) EXPECT=amd64 ;;
+            *)      echo "unknown arch $ACTUAL"; exit 1 ;;
+          esac
+          if [ "$EXPECT" != "${{ matrix.arch }}" ]; then
+            echo "runner arch ($EXPECT) != matrix arch (${{ matrix.arch }})"
+            exit 1
+          fi
+
+      - name: Test
+        run: go test ./...
+
+      - name: Build
+        run: go build -trimpath -ldflags "-s -w" -o beehiiv-mcp .
+
+      - name: Ad-hoc codesign
+        # Self-signed with an ad-hoc identity (`-`) so the binary has a cdhash
+        # Designated Requirement rather than Go's linker-default signature. Users
+        # who want Keychain ACL stability across upgrades should re-sign with
+        # their own Apple Developer identity (see README → Setup → Build + sign).
+        run: codesign --sign - --force --options runtime beehiiv-mcp
+
+      - name: Package
+        id: package
+        run: |
+          VERSION="${GITHUB_REF_NAME:-dev}"
+          STEM="beehiiv-mcp_${VERSION}_darwin_${{ matrix.arch }}"
+          mkdir -p "$STEM"
+          cp beehiiv-mcp README.md "$STEM/"
+          tar czf "${STEM}.tar.gz" "$STEM"
+          shasum -a 256 "${STEM}.tar.gz" > "${STEM}.tar.gz.sha256"
+          echo "stem=$STEM" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.stem }}
+          path: |
+            ${{ steps.package.outputs.stem }}.tar.gz
+            ${{ steps.package.outputs.stem }}.tar.gz.sha256
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: List artifacts
+        run: ls -la dist
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.tar.gz
+            dist/*.sha256
+          generate_release_notes: true
+          fail_on_unmatched_files: true
