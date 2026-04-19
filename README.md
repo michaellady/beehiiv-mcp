@@ -15,15 +15,20 @@ Read-only: no posts are created, no subscribers are edited, no state is mutated.
 
 **Option A — Download a pre-built binary (fastest):**
 
-Grab the latest macOS release from [github.com/michaellady/beehiiv-mcp/releases](https://github.com/michaellady/beehiiv-mcp/releases). Pick `darwin_arm64` (Apple Silicon) or `darwin_amd64` (Intel Mac), verify the SHA256, then extract:
+Grab a macOS release from [github.com/michaellady/beehiiv-mcp/releases](https://github.com/michaellady/beehiiv-mcp/releases):
+
+- **`continuous`** — rolling prerelease rebuilt on every code-change push to `main`. Always reflects the tip of main.
+- **`v*` tags** — stable versioned releases. Pick one of these if you don't want the CLI changing under you.
+
+For either: pick `darwin_arm64` (Apple Silicon) or `darwin_amd64` (Intel), verify the SHA256, then extract:
 
 ```bash
-tar xzf beehiiv-mcp_v0.1.0_darwin_arm64.tar.gz
-cd beehiiv-mcp_v0.1.0_darwin_arm64
+tar xzf beehiiv-mcp_<version>_darwin_arm64.tar.gz
+cd beehiiv-mcp_<version>_darwin_arm64
 ./beehiiv-mcp auth set
 ```
 
-Pre-built binaries are **ad-hoc signed**, which means macOS will show a Keychain "Allow" prompt the first time you run `auth set` AND again after each upgrade (because each release has a fresh cdhash-based signature). If that's annoying, use Option B for stable signatures.
+Pre-built binaries are **ad-hoc signed**, which means macOS shows a Keychain "Allow" prompt the first time you run `auth set` AND again after each upgrade (because each release has a fresh cdhash-based signature). If that's annoying, use Option B for stable signatures across upgrades.
 
 **Option B — Build from source (zero-prompt across upgrades):**
 

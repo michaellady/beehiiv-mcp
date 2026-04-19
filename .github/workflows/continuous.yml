@@ -1,11 +1,22 @@
-name: release
+name: continuous
 
-# Triggered by pushing a v* tag. Produces an official semver release.
-# For main-branch rolling builds see continuous.yml.
+# Rolling prerelease for every code-change push to main. Docs-only commits
+# (**.md, .gitignore, .env.example, LICENSE*) do NOT trigger — the paths
+# filter below gates on source/build files.
+#
+# For stable versioned releases see release.yml (triggered by v* tags).
 on:
   push:
-    tags:
-      - 'v*'
+    branches: [main]
+    paths:
+      - '**.go'
+      - '**.c'
+      - '**.h'
+      - 'go.mod'
+      - 'go.sum'
+      - 'Makefile'
+      - '.github/workflows/continuous.yml'
+      - '.github/workflows/release.yml'
   workflow_dispatch:
 
 permissions:
@@ -49,16 +60,13 @@ jobs:
         run: go build -trimpath -ldflags "-s -w" -o beehiiv-mcp .
 
       - name: Ad-hoc codesign
-        # Ad-hoc (`-`) so the binary carries a cdhash-based Designated
-        # Requirement rather than Go's linker-default. Users who want
-        # Keychain ACL stability across upgrades should re-sign with their
-        # own Apple Developer identity — see README → Setup.
         run: codesign --sign - --force --options runtime beehiiv-mcp
 
       - name: Package
         id: package
         run: |
-          STEM="beehiiv-mcp_${GITHUB_REF_NAME}_darwin_${{ matrix.arch }}"
+          VERSION="main-${GITHUB_SHA:0:7}"
+          STEM="beehiiv-mcp_${VERSION}_darwin_${{ matrix.arch }}"
           mkdir -p "$STEM"
           cp beehiiv-mcp README.md "$STEM/"
           tar czf "${STEM}.tar.gz" "$STEM"
@@ -76,6 +84,8 @@ jobs:
   release:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -85,14 +95,27 @@ jobs:
       - name: List artifacts
         run: ls -la dist
 
+      - name: Delete previous continuous release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          # Replace the rolling release so `continuous` always points at the
+          # newest main build. No-op on the first run.
+          gh release delete continuous --cleanup-tag --yes 2>/dev/null || true
+
       - uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
-          name: ${{ github.ref_name }}
+          tag_name: continuous
+          name: continuous (${{ github.sha }})
+          prerelease: true
+          make_latest: false
           target_commitish: ${{ github.sha }}
           files: |
             dist/*.tar.gz
             dist/*.sha256
-          generate_release_notes: true
           fail_on_unmatched_files: true
-          make_latest: true
+          body: |
+            Rolling build from `main` at commit [`${{ github.sha }}`](https://github.com/${{ github.repository }}/commit/${{ github.sha }}).
+
+            This release is replaced on every code-change push to `main`. For stable versioned builds, see the [tagged releases](https://github.com/${{ github.repository }}/releases?q=is%3Arelease+tag%3Av).
