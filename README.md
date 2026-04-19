@@ -15,16 +15,13 @@ Read-only: no posts are created, no subscribers are edited, no state is mutated.
 
 **Option A — Download a pre-built binary (fastest):**
 
-Grab a macOS release from [github.com/michaellady/beehiiv-mcp/releases](https://github.com/michaellady/beehiiv-mcp/releases):
+Every code-change push to `main` produces a new patch release — grab the latest from [github.com/michaellady/beehiiv-mcp/releases/latest](https://github.com/michaellady/beehiiv-mcp/releases/latest). If you want a specific earlier version, all releases are listed under `/releases`.
 
-- **`continuous`** — rolling prerelease rebuilt on every code-change push to `main`. Always reflects the tip of main.
-- **`v*` tags** — stable versioned releases. Pick one of these if you don't want the CLI changing under you.
-
-For either: pick `darwin_arm64` (Apple Silicon) or `darwin_amd64` (Intel), verify the SHA256, then extract:
+Pick `darwin_arm64` (Apple Silicon) or `darwin_amd64` (Intel, if available — Intel builds are best-effort on the free-tier GitHub runner), verify the SHA256, then extract:
 
 ```bash
-tar xzf beehiiv-mcp_<version>_darwin_arm64.tar.gz
-cd beehiiv-mcp_<version>_darwin_arm64
+tar xzf beehiiv-mcp_v0.0.1_darwin_arm64.tar.gz
+cd beehiiv-mcp_v0.0.1_darwin_arm64
 ./beehiiv-mcp auth set
 ```
 
