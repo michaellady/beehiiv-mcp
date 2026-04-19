@@ -37,7 +37,7 @@ rm /tmp/cert.pem
 ### 2. Clone + build + sign the binary
 
 ```bash
-git clone https://github.com/mikelady/beehiiv-mcp.git
+git clone https://github.com/michaellady/beehiiv-mcp.git
 cd beehiiv-mcp
 make install
 ```
